@@ -22,6 +22,10 @@
   spike or a zero (#124, [rudycelekli](https://github.com/rudycelekli)).
 
 **Panel**
+- **Phone now playing** widget: the "Now playing" card for the phone's own media player (Spotify, YouTube Music,
+  podcasts...) with cover art, play / pause, skip, seek and the phone's music volume. It works without a computer
+  connected. Android shares other apps' players only with Notification access; the widget opens that setting on the
+  first tap. PhoneBox reads no notifications.
 - **All apps** widget (macOS): browse the computer's applications with their icons and open one with two taps. Opening
   works only while the widget is on a page that is shown (#63, [d4rk-lucif3r](https://github.com/d4rk-lucif3r)).
 - The Agenda's window ends at local midnight also on days the clocks change, including where midnight itself is
