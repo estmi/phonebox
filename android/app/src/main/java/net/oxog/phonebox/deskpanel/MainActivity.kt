@@ -51,6 +51,7 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var web: WebView
     private lateinit var link: AgentLink
     private lateinit var stream: AgentStream
+    private val phonePlayer by lazy { PhoneMedia(this) }
     @Volatile private var volumeKeysFlipPages = true
     private val sensors by lazy { getSystemService(SensorManager::class.java) }
     private var lastLux = -1f
@@ -417,6 +418,32 @@ class MainActivity : Activity(), SensorEventListener {
             if (packageManager.getComponentEnabledSetting(alias) != want)
                 packageManager.setComponentEnabledSetting(alias, want, PackageManager.DONT_KILL_APP)
         }
+
+        /** The phone's own media session and music volume (see PhoneMedia); {"access": false} until access is granted. */
+        @JavascriptInterface
+        fun phoneMedia(key: String): String = if (ok(key)) phonePlayer.stateJson() else "{}"
+
+        /** The phone's current cover art as a data: URL, "" when there is none. */
+        @JavascriptInterface
+        fun phoneMediaArt(key: String): String = if (ok(key)) phonePlayer.artDataUrl() else ""
+
+        /** "playpause", "play", "pause", "next", "prev" or "seek" (value = milliseconds). */
+        @JavascriptInterface
+        fun phoneMediaAction(key: String, op: String, value: String): Boolean {
+            if (!ok(key)) return false
+            return if (op == "seek") value.toLongOrNull()?.let { phonePlayer.seek(it) } ?: false else phonePlayer.action(op)
+        }
+
+        /** The phone's music volume: a level 0..100, or "mute" to toggle muting. */
+        @JavascriptInterface
+        fun phoneVolume(key: String, value: String) {
+            if (!ok(key)) return
+            if (value == "mute") phonePlayer.toggleMute() else value.toIntOrNull()?.let { phonePlayer.setVolume(it) }
+        }
+
+        /** Opens Settings › Notification access so the user can let PhoneBox see the phone's media sessions. */
+        @JavascriptInterface
+        fun openPhoneMediaAccess(key: String) { if (ok(key)) runOnUiThread { phonePlayer.openAccessSettings() } }
 
         @JavascriptInterface
         fun version(key: String): String = if (ok(key)) packageManager.getPackageInfo(packageName, 0).versionName ?: "" else ""

@@ -4,6 +4,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- "Phone now playing": the names of the music apps whose sessions it shows (package visibility, Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="android.media.browse.MediaBrowserService" />
+        </intent>
+    </queries>
+
     <application
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -51,5 +58,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity-alias>
+
+        <!-- "Phone now playing": Android shares other apps' media sessions only with a notification listener. This one reads
+             no notifications; it is only what the user switches on under Notification access (off until they do). -->
+        <service
+            android:name=".PhoneMediaListener"
+            android:exported="true"
+            android:label="PhoneBox: phone now playing"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

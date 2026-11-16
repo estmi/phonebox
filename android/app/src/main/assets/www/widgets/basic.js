@@ -1,4 +1,4 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
+import { $, API, D, bridge, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 
@@ -204,6 +204,110 @@ W.media = {
         }
       },
     };
+  },
+};
+
+// The phone's own media player (Spotify, YouTube Music, podcasts... playing on the phone itself), the counterpart of
+// "Now playing" for the computer. It talks to Android directly, so it also works while no computer is connected.
+// Android shares other apps' media sessions only after Notification access is granted to PhoneBox.
+W['phone-media'] = {
+  needs: ['tick', 'fast'],
+  create(box) {
+    box.classList.add('w-media');
+    box.innerHTML = MEDIA_HTML.replace(/<div class="offline-msg">[\s\S]*$/, '');
+    const q = (s) => box.querySelector(s);
+    const img = q('.art'), vol = q('.volr');
+    q('.m-source-icon').textContent = '📱';
+    let pm = null, at = 0, artId = -1, access = true, volTimer = 0, dragging = false;
+    const call = (m, ...a) => { try { return bridge[m](...a); } catch (_) { return null; } };
+    const paintVol = (v) => { vol.style.setProperty('--p', v + '%'); q('.vol-val').textContent = v; };
+    const idle = (title, sub) => {
+      pm = null;
+      box.classList.add('idle'); box.classList.remove('playing');
+      q('.m-app-name').textContent = 'Phone';
+      q('.m-title').textContent = title; q('.m-artist').textContent = sub;
+      q('.fill').style.width = '0';
+      q('.m-pos').textContent = q('.m-dur').textContent = '0:00';
+      if (artId !== 0) { artId = 0; img.removeAttribute('src'); img.classList.remove('on'); }
+    };
+    const refresh = () => {
+      if (!bridge?.phoneMedia) { idle('Nothing playing', 'Only on the phone'); vol.disabled = true; return; }
+      let s;
+      try { s = JSON.parse(call('phoneMedia') || '{}'); } catch (_) { s = {}; }
+      access = s.access !== false;
+      const a = s.audio;
+      vol.disabled = q('.mute').disabled = !a || a.canControl === false;
+      box.classList.toggle('volume-unavailable', !a || a.canControl === false);
+      box.classList.toggle('muted-on', !!a?.muted);
+      if (a && !dragging) { vol.value = a.volume; paintVol(a.volume); }
+      if (!access) { idle('Allow notification access', 'Tap ▶ to let PhoneBox see the phone’s player'); return; }
+      const m = s.media;
+      if (!m) { idle('Nothing playing', 'Start music on the phone'); return; }
+      pm = m; at = performance.now();
+      box.classList.remove('idle');
+      box.classList.toggle('playing', !!m.playing);
+      q('.m-app-name').textContent = m.app || 'Phone';
+      q('.m-title').textContent = m.title || 'Unknown track';
+      q('.m-artist').textContent = [m.artist, m.album].filter(Boolean).join(' · ') || '—';
+      q('.m-dur').textContent = m.durMs > 0 ? fmtTime(m.durMs) : m.playing ? 'LIVE' : '0:00';
+      progress();
+      if (m.artId !== artId) {
+        artId = m.artId;
+        const src = m.artId ? call('phoneMediaArt') : '';
+        if (src) img.src = src; else { img.removeAttribute('src'); img.classList.remove('on'); }
+      }
+    };
+    const progress = () => {
+      if (!pm) return;
+      const pos = pm.posMs + (pm.playing ? performance.now() - at : 0);
+      if (pm.durMs > 0) {
+        const p = Math.min(pm.durMs, pos);
+        q('.fill').style.width = (p / pm.durMs) * 100 + '%';
+        q('.m-pos').textContent = fmtTime(p);
+      } else {
+        q('.fill').style.width = pm.playing ? '100%' : '0';
+        q('.m-pos').textContent = fmtTime(Math.max(0, pos));
+      }
+    };
+    img.addEventListener('load', () => img.classList.add('on'));
+    img.addEventListener('error', () => img.classList.remove('on'));
+    box.querySelectorAll('[data-media]').forEach((btn) => btn.addEventListener('click', () => {
+      if (!bridge?.phoneMedia) return;
+      haptic();
+      if (!access) { call('openPhoneMediaAccess'); return; }
+      const action = btn.dataset.media;
+      if (action === 'playpause' && pm) { // optimistic, the player reports back within a moment
+        pm.posMs += pm.playing ? performance.now() - at : 0; at = performance.now();
+        pm.playing = !pm.playing;
+        box.classList.toggle('playing', pm.playing);
+      }
+      call('phoneMediaAction', action, '');
+      setTimeout(refresh, 350);
+    }));
+    q('.bar').addEventListener('click', (e) => {
+      if (!pm || !pm.durMs || !pm.canSeek) return;
+      const r = e.currentTarget.getBoundingClientRect();
+      const ms = Math.round(((e.clientX - r.left) / r.width) * pm.durMs);
+      haptic();
+      pm.posMs = ms; at = performance.now();
+      progress();
+      call('phoneMediaAction', 'seek', String(ms));
+    });
+    vol.addEventListener('input', () => {
+      dragging = true;
+      paintVol(vol.value);
+      clearTimeout(volTimer);
+      volTimer = setTimeout(() => call('phoneVolume', String(vol.value)), 120);
+    });
+    vol.addEventListener('change', () => setTimeout(() => { dragging = false; }, 600));
+    q('.mute').addEventListener('click', () => {
+      if (!bridge?.phoneVolume) return;
+      haptic();
+      call('phoneVolume', 'mute');
+      setTimeout(refresh, 150);
+    });
+    refresh();
+    return { update(kind) { if (kind === 'fast') progress(); else refresh(); } };
   },
 };
 
